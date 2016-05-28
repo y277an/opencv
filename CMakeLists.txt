@@ -68,6 +68,10 @@ if(WINRT)
   endif()
 endif()
 
+if(POLICY CMP0020)
+  cmake_policy(SET CMP0020 OLD)
+endif()
+
 if(POLICY CMP0022)
   cmake_policy(SET CMP0022 OLD)
 endif()
@@ -187,8 +191,8 @@ OCV_OPTION(WITH_OPENGL         "Include OpenGL support"                      OFF
 OCV_OPTION(WITH_OPENNI         "Include OpenNI support"                      OFF  IF (NOT ANDROID AND NOT IOS AND NOT WINRT) )
 OCV_OPTION(WITH_OPENNI2        "Include OpenNI2 support"                     OFF  IF (NOT ANDROID AND NOT IOS AND NOT WINRT) )
 OCV_OPTION(WITH_PNG            "Include PNG support"                         ON)
-OCV_OPTION(WITH_PVAPI          "Include Prosilica GigE support"              ON   IF (NOT ANDROID AND NOT IOS AND NOT WINRT) )
-OCV_OPTION(WITH_GIGEAPI        "Include Smartek GigE support"                ON   IF (NOT ANDROID AND NOT IOS AND NOT WINRT) )
+OCV_OPTION(WITH_PVAPI          "Include Prosilica GigE support"              OFF   IF (NOT ANDROID AND NOT IOS AND NOT WINRT) )
+OCV_OPTION(WITH_GIGEAPI        "Include Smartek GigE support"                OFF   IF (NOT ANDROID AND NOT IOS AND NOT WINRT) )
 OCV_OPTION(WITH_QT             "Build with Qt Backend support"               OFF  IF (NOT ANDROID AND NOT IOS AND NOT WINRT) )
 OCV_OPTION(WITH_WIN32UI        "Build with Win32 UI Backend support"         ON   IF WIN32 AND NOT WINRT)
 OCV_OPTION(WITH_QUICKTIME      "Use QuickTime for Video I/O insted of QTKit" OFF  IF APPLE )
@@ -599,27 +603,23 @@ endif()
 include(cmake/OpenCVDetectVTK.cmake)
 
 # -- Custom HAL replacement --
+# Package config in: OpenCV_HALConfig.cmake or opencv_hal-config.cmake
+# Use variables: OpenCV_HAL_LIBRARIES, OpenCV_HAL_HEADERS and OpenCV_HAL_INCLUDE_DIRS variables
+find_package(OpenCV_HAL NO_MODULE QUIET)
 set(_includes "")
-# assuming OPENCV_HAL_HEADERS and OPENCV_HAL_LIBS are lists of files:
-# option example: -DOPENCV_HAL_HEADERS="<some-path>/header1.h;<some-path>/header2.h"
-if (OPENCV_HAL_HEADERS AND OPENCV_HAL_LIBS)
-  foreach (h ${OPENCV_HAL_HEADERS})
-    get_filename_component(h "${h}" ABSOLUTE)
-    set(_includes "${_includes}\n#include \"${h}\"")
-  endforeach()
-  foreach (l ${OPENCV_HAL_LIBS})
+if (OpenCV_HAL_FOUND)
+  # 1. libraries
+  foreach (l ${OpenCV_HAL_LIBRARIES})
     get_filename_component(l "${l}" ABSOLUTE)
     set(OPENCV_LINKER_LIBS ${OPENCV_LINKER_LIBS} ${l})
-    # TODO: install?
-    # ocv_install_target(${l} EXPORT OpenCVModules ARCHIVE DESTINATION ${OPENCV_3P_LIB_INSTALL_PATH} COMPONENT dev)
   endforeach()
-else()
-  set(_includes "// using default HAL")
-  unset(OPENCV_HAL_HEADERS CACHE)
-  unset(OPENCV_HAL_LIBS CACHE)
+  # 2. headers
+  foreach (h ${OpenCV_HAL_HEADERS})
+    set(_includes "${_includes}\n#include \"${h}\"")
+  endforeach()
+  # 3. include paths
+  ocv_include_directories(${OpenCV_HAL_INCLUDE_DIRS})
 endif()
-set(OPENCV_HAL_HEADERS "${OPENCV_HAL_HEADERS}" CACHE STRING "Headers with custom HAL implementation")
-set(OPENCV_HAL_LIBS "${OPENCV_HAL_LIBS}" CACHE STRING "Libraries with custom HAL implementation")
 configure_file("${OpenCV_SOURCE_DIR}/cmake/templates/custom_hal.hpp.in" "${CMAKE_BINARY_DIR}/custom_hal.hpp" @ONLY)
 unset(_includes)
 
@@ -693,7 +693,7 @@ include(cmake/OpenCVGenPkgconfig.cmake)
 # Generate OpenCV.mk for ndk-build (Android build tool)
 include(cmake/OpenCVGenAndroidMK.cmake)
 
-# Generate OpenCVСonfig.cmake and OpenCVConfig-version.cmake for cmake projects
+# Generate OpenCVConfig.cmake and OpenCVConfig-version.cmake for cmake projects
 include(cmake/OpenCVGenConfig.cmake)
 
 # Generate Info.plist for the IOS framework
@@ -711,7 +711,7 @@ if(INSTALL_TESTS AND OPENCV_TEST_DATA_PATH)
     configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/templates/opencv_run_all_tests_android.sh.in"
                    "${CMAKE_BINARY_DIR}/unix-install/opencv_run_all_tests.sh" @ONLY)
     install(PROGRAMS "${CMAKE_BINARY_DIR}/unix-install/opencv_run_all_tests.sh"
-            DESTINATION ${CMAKE_INSTALL_PREFIX} COMPONENT tests)
+            DESTINATION ./ COMPONENT tests)
   elseif(WIN32)
     configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/templates/opencv_run_all_tests_windows.cmd.in"
                    "${CMAKE_BINARY_DIR}/win-install/opencv_run_all_tests.cmd" @ONLY)
@@ -739,11 +739,11 @@ endif()
 if(ANDROID OR NOT UNIX)
   install(FILES ${OPENCV_LICENSE_FILE}
         PERMISSIONS OWNER_READ GROUP_READ WORLD_READ
-        DESTINATION ${CMAKE_INSTALL_PREFIX} COMPONENT libs)
+        DESTINATION ./ COMPONENT libs)
   if(OPENCV_README_FILE)
     install(FILES ${OPENCV_README_FILE}
             PERMISSIONS OWNER_READ GROUP_READ WORLD_READ
-            DESTINATION ${CMAKE_INSTALL_PREFIX} COMPONENT libs)
+            DESTINATION ./ COMPONENT libs)
   endif()
 endif()
 
@@ -755,10 +755,46 @@ status("General configuration for OpenCV ${OPENCV_VERSION} =====================
 if(OPENCV_VCSVERSION)
   status("  Version control:" ${OPENCV_VCSVERSION})
 endif()
+if(OPENCV_EXTRA_MODULES_PATH AND NOT BUILD_INFO_SKIP_EXTRA_MODULES)
+  set(__dump_extra_header OFF)
+  foreach(p ${OPENCV_EXTRA_MODULES_PATH})
+    if(EXISTS ${p})
+      if(NOT __dump_extra_header)
+        set(__dump_extra_header ON)
+        status("")
+        status("  Extra modules:")
+      else()
+        status("")
+      endif()
+      set(EXTRA_MODULES_VCSVERSION "unknown")
+      if(GIT_FOUND)
+        execute_process(COMMAND "${GIT_EXECUTABLE}" describe --tags --always --dirty --match "[0-9].[0-9].[0-9]*"
+          WORKING_DIRECTORY "${p}"
+          OUTPUT_VARIABLE EXTRA_MODULES_VCSVERSION
+          RESULT_VARIABLE GIT_RESULT
+          ERROR_QUIET
+          OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        if(NOT GIT_RESULT EQUAL 0)
+          set(EXTRA_MODULES_VCSVERSION "unknown")
+        endif()
+      endif()
+      status("    Location (extra):" ${p})
+      status("    Version control (extra):" ${EXTRA_MODULES_VCSVERSION})
+    endif()
+  endforeach()
+  unset(__dump_extra_header)
+endif()
 
 # ========================== build platform ==========================
 status("")
 status("  Platform:")
+if(NOT CMAKE_VERSION VERSION_LESS 2.8.11 AND NOT BUILD_INFO_SKIP_TIMESTAMP)
+  string(TIMESTAMP TIMESTAMP "" UTC)
+  if(TIMESTAMP)
+    status("    Timestamp:"    ${TIMESTAMP})
+  endif()
+endif()
 status("    Host:"             ${CMAKE_HOST_SYSTEM_NAME} ${CMAKE_HOST_SYSTEM_VERSION} ${CMAKE_HOST_SYSTEM_PROCESSOR})
 if(CMAKE_CROSSCOMPILING)
   status("    Target:"         ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_VERSION} ${CMAKE_SYSTEM_PROCESSOR})
@@ -1124,7 +1160,7 @@ endif(DEFINED WITH_VA_INTEL)
 status("    Use Eigen:"      HAVE_EIGEN       THEN "YES (ver ${EIGEN_WORLD_VERSION}.${EIGEN_MAJOR_VERSION}.${EIGEN_MINOR_VERSION})" ELSE NO)
 status("    Use Cuda:"       HAVE_CUDA        THEN "YES (ver ${CUDA_VERSION_STRING})" ELSE NO)
 status("    Use OpenCL:"     HAVE_OPENCL      THEN YES ELSE NO)
-status("    Use custom HAL:" OPENCV_HAL_HEADERS AND OPENCV_HAL_LIBS THEN "YES (${OPENCV_HAL_HEADERS}; ${OPENCV_HAL_LIBS})" ELSE "NO")
+status("    Use custom HAL:" OpenCV_HAL_FOUND THEN "YES (ver ${OpenCV_HAL_VERSION}, ${OpenCV_HAL_CONFIG})" ELSE "NO")
 
 if(HAVE_CUDA)
   status("")

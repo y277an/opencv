@@ -1007,24 +1007,24 @@ CV_EXPORTS_W void flip(InputArray src, OutputArray dst, int flipCode);
 
 /** @brief Fills the output array with repeated copies of the input array.
 
-The functions repeat duplicate the input array one or more times along each of the two axes:
+The function cv::repeat duplicates the input array one or more times along each of the two axes:
 \f[\texttt{dst} _{ij}= \texttt{src} _{i\mod src.rows, \; j\mod src.cols }\f]
 The second variant of the function is more convenient to use with @ref MatrixExpressions.
 @param src input array to replicate.
-@param dst output array of the same type as src.
-@param ny Flag to specify how many times the src is repeated along the
+@param ny Flag to specify how many times the `src` is repeated along the
 vertical axis.
-@param nx Flag to specify how many times the src is repeated along the
+@param nx Flag to specify how many times the `src` is repeated along the
 horizontal axis.
-@sa reduce
+@param dst output array of the same type as `src`.
+@sa cv::reduce
 */
 CV_EXPORTS_W void repeat(InputArray src, int ny, int nx, OutputArray dst);
 
 /** @overload
 @param src input array to replicate.
-@param ny Flag to specify how many times the src is repeated along the
+@param ny Flag to specify how many times the `src` is repeated along the
 vertical axis.
-@param nx Flag to specify how many times the src is repeated along the
+@param nx Flag to specify how many times the `src` is repeated along the
 horizontal axis.
   */
 CV_EXPORTS Mat repeat(const Mat& src, int ny, int nx);
@@ -2170,6 +2170,14 @@ is much faster to use this function to retrieve the generator and then use RNG::
 */
 CV_EXPORTS RNG& theRNG();
 
+/** @brief Sets state of default random number generator.
+
+The function sets state of default random number generator to custom value.
+@param seed new state for default random number generator
+@sa RNG, randu, randn
+*/
+CV_EXPORTS_W void setRNGSeed(int seed);
+
 /** @brief Generates a single uniformly-distributed random number or an array of random numbers.
 
 Non-template variant of the function fills the matrix dst with uniformly-distributed
@@ -2316,11 +2324,11 @@ public:
     The operator performs %PCA of the supplied dataset. It is safe to reuse
     the same PCA structure for multiple datasets. That is, if the structure
     has been previously used with another dataset, the existing internal
-    data is reclaimed and the new eigenvalues, @ref eigenvectors , and @ref
+    data is reclaimed and the new @ref eigenvalues, @ref eigenvectors and @ref
     mean are allocated and computed.
 
-    The computed eigenvalues are sorted from the largest to the smallest and
-    the corresponding eigenvectors are stored as eigenvectors rows.
+    The computed @ref eigenvalues are sorted from the largest to the smallest and
+    the corresponding @ref eigenvectors are stored as eigenvectors rows.
 
     @param data input samples stored as the matrix rows or as the matrix
     columns.
@@ -2400,11 +2408,17 @@ public:
      */
     void backProject(InputArray vec, OutputArray result) const;
 
-    /** @brief write and load PCA matrix
+    /** @brief write PCA objects
 
-*/
-    void write(FileStorage& fs ) const;
-    void read(const FileNode& fs);
+    Writes @ref eigenvalues @ref eigenvectors and @ref mean to specified FileStorage
+     */
+    void write(FileStorage& fs) const;
+
+    /** @brief load PCA objects
+
+    Loads @ref eigenvalues @ref eigenvectors and @ref mean from specified FileNode
+     */
+    void read(const FileNode& fn);
 
     Mat eigenvectors; //!< eigenvectors of the covariation matrix
     Mat eigenvalues; //!< eigenvalues of the covariation matrix
@@ -3028,6 +3042,7 @@ public:
     {
         FileStorage fs(filename, FileStorage::READ);
         FileNode fn = objname.empty() ? fs.getFirstTopLevelNode() : fs[objname];
+        if (fn.empty()) return Ptr<_Tp>();
         Ptr<_Tp> obj = _Tp::create();
         obj->read(fn);
         return !obj->empty() ? obj : Ptr<_Tp>();
@@ -3059,6 +3074,9 @@ public:
     /** Returns the algorithm string identifier.
      This string is used as top level xml/yml node tag when the object is saved to a file or string. */
     CV_WRAP virtual String getDefaultName() const;
+
+protected:
+    void writeFormat(FileStorage& fs) const;
 };
 
 struct Param {
